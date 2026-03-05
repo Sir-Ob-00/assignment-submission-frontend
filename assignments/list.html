@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All Assignments — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="list-all">
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, getUser, formatDate, isOverdue, showMessage } from "/js/utils.js";
+  import { apiGetAllAssignments, apiDeleteAssignment } from "/js/api.js";
+
+  if (!requireAuth(["lecturer", "admin"])) throw new Error("unauth");
+  renderNav("list-all");
+
+  const me = getUser();
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+      <!-- Nav breadcrumb -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">
+        <a href="/dashboard.html" style="color:#64748b;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='#f59e0b'" onmouseout="this.style.color='#64748b'">← Dashboard</a>
+        <span>/</span>
+        <span style="color:#94a3b8;">All Assignments</span>
+      </div>
+
+      <div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">All Assignments</h1>
+          <p class="page-subtitle">Manage and review all assignments</p>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button id="fetchBtn" class="btn-secondary">⟳ Refresh</button>
+          <a href="/assignments/create.html" class="btn-primary">+ New Assignment</a>
+        </div>
+      </div>
+
+      <!-- Search + Filter row -->
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+        <input id="search" type="text" class="form-input" placeholder="Search assignments…" style="max-width:280px;" />
+        <div style="display:flex;gap:6px;">
+          <button class="status-filter active-status-filter" data-status="all">All</button>
+          <button class="status-filter" data-status="active">Active</button>
+          <button class="status-filter" data-status="overdue">Overdue</button>
+        </div>
+        <span id="assign-count" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#475569;margin-left:auto;"></span>
+      </div>
+
+      <div id="msg" class="hidden mb-4"></div>
+      <div id="assignmentList"></div>
+    </div>
+  `);
+
+  let allAssignments = [];
+  let activeStatus   = "all";
+  const container    = document.getElementById("assignmentList");
+
+  // ── Fetch ──────────────────────────────────────────────────
+  async function load() {
+    const btn = document.getElementById("fetchBtn");
+    btn.textContent = "Loading…"; btn.disabled = true;
+    container.innerHTML = skeleton();
+
+    const res = await apiGetAllAssignments();
+    btn.textContent = "⟳ Refresh"; btn.disabled = false;
+
+    if (!res.ok) { container.innerHTML = errCard(res.error); return; }
+
+    const raw = res.data;
+    allAssignments = Array.isArray(raw) ? raw
+                   : raw.assignments ? raw.assignments
+                   : raw.data        ? raw.data
+                   : raw.result      ? raw.result
+                   : [];
+
+    console.log("📋 Assignments fetched:", allAssignments.length, allAssignments);
+    render();
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  function render() {
+    const q = (document.getElementById("search").value || "").toLowerCase();
+    let items = allAssignments;
+
+    if (activeStatus === "active")  items = items.filter(a => !isOverdue(a.dueDate));
+    if (activeStatus === "overdue") items = items.filter(a => isOverdue(a.dueDate));
+    if (q) items = items.filter(a =>
+      (a.title       || "").toLowerCase().includes(q) ||
+      (a.description || "").toLowerCase().includes(q)
+    );
+
+    document.getElementById("assign-count").textContent =
+      `${items.length} assignment${items.length !== 1 ? "s" : ""}`;
+
+    if (!items.length) {
+      container.innerHTML = empty(allAssignments.length === 0
+        ? "No assignments yet. Create one to get started."
+        : "No assignments match your search or filter");
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Description</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(a => `
+              <tr id="assign-row-${a._id}">
+                <td style="font-weight:600;color:white;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.title}</td>
+                <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;">${a.description || "—"}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;font-size:0.8rem;white-space:nowrap;">${formatDate(a.dueDate)}</td>
+                <td>
+                  ${isOverdue(a.dueDate)
+                    ? `<span class="status-badge" style="background:rgba(248,113,113,0.1);color:#fca5a5;border-color:rgba(248,113,113,0.3);">Overdue</span>`
+                    : `<span class="status-badge" style="background:rgba(16,185,129,0.1);color:#6ee7b7;border-color:rgba(16,185,129,0.3);">Active</span>`
+                  }
+                </td>
+                <td style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#64748b;white-space:nowrap;">${formatDate(a.createdAt)}</td>
+                <td style="text-align:right;">
+                  <button onclick="deleteAssignment('${a._id}','${(a.title||"").replace(/'/g,"\\'")}')"
+                    style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#f87171;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);padding:6px 14px;border-radius:6px;cursor:pointer;transition:all 0.2s;"
+                    onmouseover="this.style.background='rgba(248,113,113,0.18)'"
+                    onmouseout="this.style.background='rgba(248,113,113,0.08)'">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // ── Delete ─────────────────────────────────────────────────
+  window.deleteAssignment = async (id, title) => {
+    if (!confirm(`Delete assignment "${title}"?\n\nThis cannot be undone.`)) return;
+    const res = await apiDeleteAssignment(id);
+    if (res.ok) {
+      showMessage(`"${title}" deleted`, "success");
+      allAssignments = allAssignments.filter(a => a._id !== id);
+      const row = document.getElementById(`assign-row-${id}`);
+      if (row) { row.style.opacity = "0"; row.style.transition = "opacity 0.3s"; setTimeout(() => row.remove(), 300); }
+      render();
+    } else {
+      showMessage(res.error || "Delete failed", "error");
+    }
+  };
+
+  // ── Filter buttons ─────────────────────────────────────────
+  document.querySelectorAll(".status-filter").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".status-filter").forEach(b => b.classList.remove("active-status-filter"));
+      btn.classList.add("active-status-filter");
+      activeStatus = btn.dataset.status;
+      render();
+    });
+  });
+
+  document.getElementById("search").addEventListener("input", render);
+  document.getElementById("fetchBtn").addEventListener("click", load);
+
+  await load();
+
+  function skeleton() {
+    return Array(4).fill(0).map(() =>
+      `<div class="card animate-pulse mb-3" style="height:52px;border-radius:6px;"></div>`
+    ).join("");
+  }
+  function errCard(m) {
+    return `<div class="card" style="border-color:rgba(248,113,113,0.3);"><p style="color:#f87171;font-family:'IBM Plex Mono',monospace;">${m}</p></div>`;
+  }
+  function empty(m) {
+    return `<div style="text-align:center;padding:64px 0;color:#475569;font-family:'IBM Plex Mono',monospace;">${m}</div>`;
+  }
+</script>
+
+<style>
+  .status-filter {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #1e2e4a;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .status-filter:hover { color: #e2e8f0; border-color: #2a3e5a; background: #152038; }
+  .active-status-filter { color: #f59e0b !important; border-color: rgba(245,158,11,0.4) !important; background: rgba(245,158,11,0.06) !important; }
+</style>
+</body>
+</html>

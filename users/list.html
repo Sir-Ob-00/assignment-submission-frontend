@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Management — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="user-list">
+
+<!-- ── Add User Modal ──────────────────────────────────────── -->
+<div id="addUserModal" style="display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div id="modalBackdrop" style="position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);"></div>
+  <div style="position:relative;z-index:1;background:#0d1426;border:1px solid #1e2e4a;border-radius:16px;padding:36px;width:100%;max-width:440px;animation:fadeUp 0.2s ease;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+      <h2 style="font-family:'DM Serif Display',serif;font-size:1.4rem;color:white;">Add New User</h2>
+      <button id="closeModal" style="background:none;border:none;cursor:pointer;color:#64748b;font-size:1.3rem;line-height:1;" title="Close">✕</button>
+    </div>
+    <div id="modalMsg" class="hidden mb-4 text-sm"></div>
+    <form id="addUserForm" novalidate>
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input id="newName" type="text" class="form-input" placeholder="Jane Smith" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input id="newEmail" type="email" class="form-input" placeholder="jane@university.edu" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="newPassword" type="password" class="form-input" placeholder="Min 8 characters" required minlength="8" />
+      </div>
+      <div class="form-group" style="margin-bottom:24px;">
+        <label class="form-label">Role</label>
+        <select id="newRole" class="form-input" required>
+          <option value="" disabled selected>Select role</option>
+          <option value="student">Student</option>
+          <option value="lecturer">Lecturer</option>
+          <option value="admin">Administrator</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button type="submit" id="addUserBtn" class="btn-primary" style="flex:1;justify-content:center;">Create User</button>
+        <button type="button" id="cancelModal" class="btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, getUser, formatDate, roleBadge, showMessage } from "/js/utils.js";
+  import { apiGetAllUsers, apiDeleteUser, apiRegister } from "/js/api.js";
+
+  if (!requireAuth(["admin"])) throw new Error("unauth");
+  renderNav("user-list");
+
+  const me = getUser();
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+      <!-- Nav breadcrumb -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">
+        <a href="/dashboard.html" style="color:#64748b;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='#f59e0b'" onmouseout="this.style.color='#64748b'">← Dashboard</a>
+        <span>/</span>
+        <span style="color:#94a3b8;">User Management</span>
+      </div>
+
+      <div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">User Management</h1>
+          <p class="page-subtitle">All registered accounts</p>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button id="fetchBtn" class="btn-secondary">⟳ Fetch Users</button>
+          <button id="openAddModal" class="btn-primary">+ Add User</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+        <input id="search" type="text" class="form-input" placeholder="Search by name or email…" style="max-width:280px;" />
+        <div style="display:flex;gap:6px;">
+          <button class="role-filter active-role-filter" data-role="all">All</button>
+          <button class="role-filter" data-role="student">Students</button>
+          <button class="role-filter" data-role="lecturer">Lecturers</button>
+          <button class="role-filter" data-role="admin">Admins</button>
+        </div>
+        <span id="user-count" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#475569;margin-left:auto;"></span>
+      </div>
+
+      <div id="msg" class="hidden mb-4"></div>
+      <div id="userList"><div style="text-align:center;padding:64px 0;color:#475569;font-family:'IBM Plex Mono',monospace;">Click "Fetch Users" to load</div></div>
+    </div>
+  `);
+
+  let allUsers    = [];
+  let activeRole  = "all";
+  const container = document.getElementById("userList");
+
+  // ── Fetch ──────────────────────────────────────────────────
+  async function load() {
+    const btn = document.getElementById("fetchBtn");
+    btn.textContent = "Loading…"; btn.disabled = true;
+    container.innerHTML = skeleton();
+    const res = await apiGetAllUsers();
+    btn.textContent = "⟳ Fetch Users"; btn.disabled = false;
+
+    if (!res.ok) { container.innerHTML = errCard(res.error); return; }
+
+    // Handle all response shapes
+    const raw = res.data;
+    allUsers = Array.isArray(raw) ? raw
+             : raw.users  ? raw.users
+             : raw.data   ? raw.data
+             : raw.result ? raw.result
+             : [];
+
+    console.log("👥 Users fetched:", allUsers.length, allUsers);
+    render();
+  }
+
+  // ── Render table ───────────────────────────────────────────
+  function render() {
+    const q = (document.getElementById("search").value || "").toLowerCase();
+    let items = allUsers;
+
+    if (activeRole !== "all") items = items.filter(u => u.role === activeRole);
+    if (q) items = items.filter(u =>
+      (u.name  || "").toLowerCase().includes(q) ||
+      (u.email || "").toLowerCase().includes(q)
+    );
+
+    document.getElementById("user-count").textContent =
+      `${items.length} user${items.length !== 1 ? "s" : ""}`;
+
+    if (!items.length) {
+      container.innerHTML = empty(allUsers.length === 0
+        ? 'No users found. Click "Fetch Users" to load.'
+        : "No users match your filter");
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Joined</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(u => `
+              <tr id="user-row-${u._id}">
+                <td>
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:34px;height:34px;border-radius:50%;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18);display:flex;align-items:center;justify-content:center;font-weight:700;color:#f59e0b;font-size:0.85rem;flex-shrink:0;">
+                      ${(u.name || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <span style="font-weight:600;color:white;">
+                      ${u.name || "—"}
+                      ${u._id === me?._id ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:0.65rem;color:#64748b;margin-left:6px;">(you)</span>' : ""}
+                    </span>
+                  </div>
+                </td>
+                <td style="font-family:'IBM Plex Mono',monospace;font-size:0.8rem;color:#64748b;">${u.email || "—"}</td>
+                <td>${roleBadge(u.role)}</td>
+                <td style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#64748b;white-space:nowrap;">${formatDate(u.createdAt)}</td>
+                <td style="text-align:right;">
+                  ${u._id !== me?._id
+                    ? `<button onclick="deleteUser('${u._id}','${(u.name||"").replace(/'/g, "\\'")}')"
+                         style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#f87171;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);padding:6px 14px;border-radius:6px;cursor:pointer;transition:all 0.2s;"
+                         onmouseover="this.style.background='rgba(248,113,113,0.18)'"
+                         onmouseout="this.style.background='rgba(248,113,113,0.08)'">
+                         Delete
+                       </button>`
+                    : `<span style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:#475569;">—</span>`
+                  }
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // ── Delete ─────────────────────────────────────────────────
+  window.deleteUser = async (id, name) => {
+    if (!confirm(`Delete user "${name}"?\n\nThis cannot be undone.`)) return;
+    const res = await apiDeleteUser(id);
+    if (res.ok) {
+      showMessage(`"${name}" deleted`, "success");
+      allUsers = allUsers.filter(u => u._id !== id);
+      const row = document.getElementById(`user-row-${id}`);
+      if (row) { row.style.opacity = "0"; row.style.transition = "opacity 0.3s"; setTimeout(() => row.remove(), 300); }
+      document.getElementById("user-count").textContent = `${allUsers.length} users`;
+    } else {
+      showMessage(res.error || "Delete failed", "error");
+    }
+  };
+
+  // ── Role filter buttons ────────────────────────────────────
+  document.querySelectorAll(".role-filter").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".role-filter").forEach(b => b.classList.remove("active-role-filter"));
+      btn.classList.add("active-role-filter");
+      activeRole = btn.dataset.role;
+      render();
+    });
+  });
+
+  document.getElementById("search").addEventListener("input", render);
+  document.getElementById("fetchBtn").addEventListener("click", load);
+
+  // ── Modal logic ────────────────────────────────────────────
+  const modal = document.getElementById("addUserModal");
+
+  function openModal() {
+    modal.style.display = "flex";
+    document.getElementById("addUserForm").reset();
+    document.getElementById("modalMsg").classList.add("hidden");
+  }
+  function closeModal() { modal.style.display = "none"; }
+
+  document.getElementById("openAddModal").addEventListener("click", openModal);
+  document.getElementById("closeModal").addEventListener("click",  closeModal);
+  document.getElementById("cancelModal").addEventListener("click",  closeModal);
+  document.getElementById("modalBackdrop").addEventListener("click", closeModal);
+
+  document.getElementById("addUserForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn  = document.getElementById("addUserBtn");
+    const name     = document.getElementById("newName").value.trim();
+    const email    = document.getElementById("newEmail").value.trim();
+    const password = document.getElementById("newPassword").value;
+    const role     = document.getElementById("newRole").value;
+
+    if (!name || !email || !password || !role) {
+      showMessage("All fields are required", "error", "modalMsg"); return;
+    }
+    if (password.length < 8) {
+      showMessage("Password must be at least 8 characters", "error", "modalMsg"); return;
+    }
+
+    btn.disabled = true; btn.textContent = "Creating…";
+    const res = await apiRegister({ name, email, password, role });
+
+    if (res.ok) {
+      showMessage(`User "${name}" created successfully!`, "success");
+      closeModal();
+      await load(); // refresh list
+    } else {
+      showMessage(res.error || "Failed to create user", "error", "modalMsg");
+    }
+    btn.disabled = false; btn.textContent = "Create User";
+  });
+
+  // Helpers
+  function skeleton() {
+    return Array(5).fill(0).map(() =>
+      `<div class="card animate-pulse mb-3" style="height:52px;border-radius:6px;"></div>`
+    ).join("");
+  }
+  function errCard(m) {
+    return `<div class="card" style="border-color:rgba(248,113,113,0.3);"><p style="color:#f87171;font-family:'IBM Plex Mono',monospace;">Error: ${m}</p></div>`;
+  }
+  function empty(m) {
+    return `<div style="text-align:center;padding:64px 0;color:#475569;font-family:'IBM Plex Mono',monospace;">${m}</div>`;
+  }
+</script>
+
+<style>
+  .role-filter {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #1e2e4a;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.04em;
+  }
+  .role-filter:hover { color: #e2e8f0; border-color: #2a3e5a; background: #152038; }
+  .active-role-filter { color: #f59e0b !important; border-color: rgba(245,158,11,0.4) !important; background: rgba(245,158,11,0.06) !important; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="profile">
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, getUser, formatDate, roleBadge } from "/js/utils.js";
+  import { apiGetMe } from "/js/api.js";
+
+  if (!requireAuth()) throw new Error("unauth");
+  renderNav("profile");
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+      <!-- Nav breadcrumb -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">
+        <a href="/dashboard.html" style="color:#64748b;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='#f59e0b'" onmouseout="this.style.color='#64748b'">← Dashboard</a>
+        <span>/</span>
+        <span style="color:#94a3b8;">My Profile</span>
+      </div>
+
+      <div class="page-header">
+        <h1 class="page-title">My Profile</h1>
+        <p class="page-subtitle">Account information</p>
+      </div>
+      <div id="msg" class="hidden mb-5" style="max-width:520px;"></div>
+      <div id="profileContent"></div>
+    </div>
+  `);
+
+  const container = document.getElementById("profileContent");
+  container.innerHTML = `
+    <div class="card animate-pulse" style="max-width:520px;">
+      <div style="height:64px;width:64px;border-radius:50%;background:#152038;margin-bottom:20px;"></div>
+      <div style="height:16px;background:#152038;border-radius:4px;width:40%;margin-bottom:12px;"></div>
+      <div style="height:12px;background:#152038;border-radius:4px;width:60%;"></div>
+    </div>`;
+
+  const res = await apiGetMe();
+  if (!res.ok) {
+    container.innerHTML = `<div class="card" style="border-color:rgba(248,113,113,0.3);max-width:520px;"><p style="color:#f87171;font-family:'IBM Plex Mono',monospace;">Error: ${res.error}</p></div>`;
+  } else {
+    const u = res.data.user || res.data;
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:760px;" class="profile-grid">
+        <!-- Main card -->
+        <div class="card animate-fadeUp" style="grid-column:1/-1;">
+          <div style="display:flex;align-items:center;gap:20px;margin-bottom:28px;">
+            <div style="width:72px;height:72px;border-radius:50%;background:rgba(245,158,11,0.1);border:2px solid rgba(245,158,11,0.25);display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:800;color:#f59e0b;flex-shrink:0;">
+              ${(u.name || "U").charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h2 style="font-family:'DM Serif Display',serif;font-size:1.6rem;color:white;letter-spacing:-0.02em;">${u.name}</h2>
+              <div style="margin-top:6px;">${roleBadge(u.role)}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;gap:0;">
+            ${row("Email", u.email)}
+            ${row("Role", u.role)}
+            ${row("Member since", formatDate(u.createdAt))}
+            ${u._id ? row("User ID", `<span style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;word-break:break-all;">${u._id}</span>`) : ""}
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card animate-fadeUp" style="animation-delay:0.08s;">
+          <h3 class="section-title" style="margin-bottom:16px;">Quick Actions</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <a href="/dashboard.html" class="btn-secondary" style="justify-content:flex-start;">← Back to Dashboard</a>
+            ${u.role === "student" ? `<a href="/assignments/student.html" class="btn-secondary" style="justify-content:flex-start;">📋 My Assignments</a>` : ''}
+            ${u.role === "lecturer" || u.role === "admin" ? `<a href="/assignments/create.html" class="btn-secondary" style="justify-content:flex-start;">+ Create Assignment</a>` : ''}
+          </div>
+        </div>
+
+        <!-- Account info -->
+        <div class="card animate-fadeUp" style="animation-delay:0.12s;">
+          <h3 class="section-title" style="margin-bottom:16px;">Security</h3>
+          <p style="font-size:0.83rem;color:#64748b;font-family:'IBM Plex Mono',monospace;line-height:1.6;">Your session is secured with JWT authentication. Tokens expire automatically for your security.</p>
+        </div>
+      </div>`;
+  }
+
+  function row(label, value) {
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #152038;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;">${label}</span>
+      <span style="font-size:0.88rem;color:#e2e8f0;">${value || "—"}</span>
+    </div>`;
+  }
+</script>
+<style>
+  @media (max-width:600px){ .profile-grid{ grid-template-columns:1fr !important; } .profile-grid .card:first-child{ grid-column:1; } }
+</style>
+</body>
+</html>

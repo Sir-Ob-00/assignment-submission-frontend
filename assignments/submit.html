@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submit Assignment — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="submit">
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, formatDate, isOverdue, showMessage } from "/js/utils.js";
+  import { apiGetStudentAssignments, apiSubmitAssignment, BASE_URL } from "/js/api.js";
+
+  if (!requireAuth(["student"])) throw new Error("unauth");
+  renderNav("submit");
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+      <div class="page-header">
+        <a href="/assignments/student.html" style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#64748b;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:16px;">← Back to assignments</a>
+        <h1 class="page-title">Submit Assignment</h1>
+        <p id="assignment-due" class="page-subtitle"></p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;max-width:900px;" id="layout-grid">
+        <div>
+          <!-- Assignment info card -->
+          <div class="card" id="assignment-info" style="margin-bottom:16px;">
+            <div class="animate-pulse">
+              <div style="height:16px;background:#152038;border-radius:4px;width:60%;margin-bottom:10px;"></div>
+              <div style="height:12px;background:#152038;border-radius:4px;width:40%;"></div>
+            </div>
+          </div>
+
+          <!-- Upload card -->
+          <div class="card">
+            <h2 class="section-title" style="margin-bottom:20px;">Upload your PDF</h2>
+            <div id="msg" class="hidden mb-4"></div>
+
+            <form id="submitForm" novalidate>
+              <!-- Drop zone -->
+              <div id="dropZone" style="border:2px dashed #1e2e4a;border-radius:10px;padding:48px 24px;text-align:center;cursor:pointer;transition:all 0.2s;position:relative;margin-bottom:20px;">
+                <input type="file" id="file" name="file" accept="application/pdf" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;" />
+                <div id="drop-icon" style="font-size:3rem;margin-bottom:12px;">📄</div>
+                <p style="font-weight:600;color:white;margin-bottom:6px;" id="drop-label">Drop your PDF here</p>
+                <p style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">or click to browse · PDF only · max 10MB</p>
+              </div>
+
+              <!-- File preview -->
+              <div id="filePreview" style="display:none;padding:14px 16px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:8px;margin-bottom:20px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <span style="font-size:1.5rem;">📎</span>
+                  <div style="flex:1;min-width:0;">
+                    <p id="fileName" style="font-weight:600;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></p>
+                    <p id="fileSize" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#64748b;margin-top:2px;"></p>
+                  </div>
+                  <button type="button" id="clearFile" style="background:none;border:none;cursor:pointer;color:#64748b;font-size:1.2rem;" title="Remove">✕</button>
+                </div>
+              </div>
+
+              <button type="submit" id="submitBtn" class="btn-primary" style="width:100%;justify-content:center;padding:14px;" disabled>
+                Submit Assignment
+              </button>
+            </form>
+
+            <!-- Success link -->
+            <div id="file-link" class="hidden" style="margin-top:16px;padding:14px 16px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:8px;"></div>
+          </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div>
+          <div class="card" style="margin-bottom:14px;background:rgba(245,158,11,0.04);border-color:rgba(245,158,11,0.15);">
+            <p style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#f59e0b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Submission Rules</p>
+            <ul style="font-size:0.82rem;color:#64748b;list-style:none;display:flex;flex-direction:column;gap:8px;line-height:1.5;">
+              <li>→ PDF format only</li>
+              <li>→ Maximum file size: 10MB</li>
+              <li>→ One submission per assignment</li>
+              <li>→ Submit before the due date</li>
+              <li>→ You will receive a confirmation link</li>
+            </ul>
+          </div>
+          <div class="card">
+            <p style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Need help?</p>
+            <p style="font-size:0.82rem;color:#475569;line-height:1.5;">Contact your lecturer or institution's IT support if you experience any issues uploading your submission.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  const assignmentId = new URLSearchParams(window.location.search).get("id");
+  const submitBtn    = document.getElementById("submitBtn");
+  const fileInput    = document.getElementById("file");
+  const dropZone     = document.getElementById("dropZone");
+
+  if (!assignmentId) {
+    showMessage("No assignment ID provided. Go back and try again.", "error");
+    submitBtn.disabled = true;
+  } else {
+    // Load assignment info
+    const res = await apiGetStudentAssignments();
+    if (res.ok) {
+      const assignments  = res.data.assignments || res.data || [];
+      const assignment   = assignments.find(a => a._id === assignmentId);
+      const infoCard     = document.getElementById("assignment-info");
+      const dueEl        = document.getElementById("assignment-due");
+
+      if (assignment) {
+        const overdue = isOverdue(assignment.dueDate);
+        infoCard.innerHTML = `
+          <h3 style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:white;margin-bottom:8px;">${assignment.title}</h3>
+          ${assignment.description ? `<p style="font-size:0.88rem;color:#64748b;margin-bottom:10px;line-height:1.5;">${assignment.description}</p>` : ""}
+          <p style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:${overdue?'#f87171':'#94a3b8'};">
+            Due: ${formatDate(assignment.dueDate)} ${overdue ? '· <span style="color:#f87171">OVERDUE</span>' : ''}
+          </p>`;
+        dueEl.textContent = `Due: ${formatDate(assignment.dueDate)}`;
+
+        if (assignment.submitted) {
+          showMessage("You have already submitted this assignment.", "info");
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Already Submitted";
+          if (assignment.fileUrl) {
+            const linkContainer = document.getElementById("file-link");
+            linkContainer.innerHTML = `<a href="${BASE_URL}/${assignment.fileUrl}" target="_blank" style="color:#f59e0b;font-family:'IBM Plex Mono',monospace;font-size:0.83rem;">📎 View your submission</a>`;
+            linkContainer.classList.remove("hidden");
+          }
+          fileInput.disabled = true;
+        }
+      } else {
+        infoCard.innerHTML = `<p style="color:#64748b;font-size:0.88rem;">Assignment not found. Make sure you're accessing the correct link.</p>`;
+      }
+    }
+  }
+
+  // File drop zone interaction
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.style.borderColor = "#f59e0b"; dropZone.style.background = "rgba(245,158,11,0.04)"; });
+  dropZone.addEventListener("dragleave", () => { dropZone.style.borderColor = "#1e2e4a"; dropZone.style.background = ""; });
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = "#1e2e4a"; dropZone.style.background = "";
+    if (e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      handleFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  document.getElementById("clearFile").addEventListener("click", () => {
+    fileInput.value = "";
+    document.getElementById("filePreview").style.display = "none";
+    document.getElementById("drop-label").textContent = "Drop your PDF here";
+    document.getElementById("drop-icon").textContent = "📄";
+    submitBtn.disabled = true;
+  });
+
+  function handleFile(file) {
+    if (file.type !== "application/pdf") {
+      showMessage("Only PDF files are accepted", "error"); return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showMessage("File must be under 10MB", "error"); return;
+    }
+    document.getElementById("fileName").textContent = file.name;
+    document.getElementById("fileSize").textContent = (file.size / 1024 / 1024).toFixed(2) + " MB";
+    document.getElementById("filePreview").style.display = "block";
+    document.getElementById("drop-label").textContent = "File selected ✓";
+    document.getElementById("drop-icon").textContent = "✅";
+    dropZone.style.borderColor = "rgba(16,185,129,0.4)";
+    submitBtn.disabled = false;
+  }
+
+  document.getElementById("submitForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const file = fileInput.files[0];
+    if (!file) { showMessage("Please select a PDF file", "error"); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span style="display:inline-block;animation:spin 1s linear infinite;margin-right:6px;">⟳</span> Uploading…`;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await apiSubmitAssignment(assignmentId, formData);
+    if (res.ok) {
+      showMessage("Assignment submitted successfully! 🎉", "success");
+      submitBtn.textContent = "✓ Submitted";
+      submitBtn.style.background = "#10b981";
+      submitBtn.style.color = "white";
+
+      const fileUrl = res.data.fileUrl || res.data.submission?.fileUrl;
+      if (fileUrl) {
+        const linkEl = document.getElementById("file-link");
+        linkEl.innerHTML = `
+          <p style="font-size:0.83rem;color:#6ee7b7;margin-bottom:6px;font-weight:600;">Submission received!</p>
+          <a href="${BASE_URL}/${fileUrl}" target="_blank" style="color:#f59e0b;font-family:'IBM Plex Mono',monospace;font-size:0.8rem;text-decoration:none;">📎 View uploaded file →</a>`;
+        linkEl.classList.remove("hidden");
+      }
+    } else {
+      showMessage(res.error || "Submission failed. Please try again.", "error");
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit Assignment";
+    }
+  });
+</script>
+
+<style>
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @media (max-width: 700px) { #layout-grid { grid-template-columns: 1fr !important; } }
+</style>
+</body>
+</html>

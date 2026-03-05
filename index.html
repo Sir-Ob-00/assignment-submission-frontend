@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — AssignHub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+
+<div class="auth-wrapper">
+  <div style="position:absolute;top:-20%;left:-15%;width:500px;height:500px;background:radial-gradient(circle,rgba(245,158,11,0.04) 0%,transparent 65%);pointer-events:none;"></div>
+
+  <div class="auth-card animate-fadeUp">
+    <div class="mb-8 text-center">
+      <div class="inline-flex items-center gap-2 mb-5">
+        <div style="width:36px;height:36px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:8px;display:flex;align-items:center;justify-content:center;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </div>
+      </div>
+      <h1 class="font-display" style="font-size:2rem;color:white;letter-spacing:-0.02em;margin-bottom:6px;">AssignHub</h1>
+      <p style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#64748b;letter-spacing:0.08em;">ASSIGNMENT MANAGEMENT SYSTEM</p>
+    </div>
+
+    <div id="msg" class="hidden mb-4 text-sm"></div>
+
+    <form id="loginForm" novalidate>
+      <div class="form-group">
+        <label class="form-label" for="email">Email Address</label>
+        <input id="email" type="email" class="form-input" placeholder="you@university.edu" required autocomplete="email" />
+      </div>
+      <div class="form-group" style="margin-bottom:28px;">
+        <label class="form-label" for="password">Password</label>
+        <div style="position:relative;">
+          <input id="password" type="password" class="form-input" placeholder="••••••••" required autocomplete="current-password" style="padding-right:44px;" />
+          <button type="button" id="togglePwd" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#64748b;" tabindex="-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;justify-content:center;padding:13px;">Sign In</button>
+    </form>
+
+    <hr class="divider" />
+    <p style="text-align:center;font-size:0.85rem;color:#64748b;">
+      Don't have an account?
+      <a href="/register.html" style="color:#f59e0b;font-weight:600;text-decoration:none;margin-left:4px;">Register →</a>
+    </p>
+  </div>
+</div>
+
+<script type="module">
+  import { apiLogin } from "/js/api.js";
+  import { showMessage } from "/js/utils.js";
+
+  // Only auto-redirect if stored user has a valid role
+  const cachedUser = JSON.parse(localStorage.getItem("user") || "null");
+  if (localStorage.getItem("token") && cachedUser?.role) {
+    window.location.href = "/dashboard.html";
+  }
+
+  document.getElementById("togglePwd").addEventListener("click", () => {
+    const input = document.getElementById("password");
+    input.type = input.type === "password" ? "text" : "password";
+  });
+
+  document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn      = e.target.querySelector("button[type=submit]");
+    btn.disabled   = true;
+    btn.textContent = "Signing in…";
+
+    const email    = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    if (!email || !password) {
+      showMessage("Please fill in all fields", "error");
+      btn.disabled = false; btn.textContent = "Sign In"; return;
+    }
+
+    const res = await apiLogin(email, password);
+    if (!res.ok) {
+      showMessage(res.error || "Invalid email or password", "error");
+      btn.disabled = false; btn.textContent = "Sign In";
+      return;
+    }
+
+    // ── Log FIRST so we always see the response shape ──
+    console.log("🔑 Full login response:", JSON.stringify(res.data, null, 2));
+
+    // Token may be nested under different keys depending on the backend
+    const token = res.data.token
+      || res.data.accessToken
+      || res.data.access_token
+      || res.data.jwt
+      || res.data.data?.token
+      || res.data.data?.accessToken
+      || res.data.result?.token;
+
+    if (!token) {
+      showMessage("No token returned from server. Check your backend.", "error");
+      console.error("❌ Could not find token in response. Full response above ↑");
+      btn.disabled = false; btn.textContent = "Sign In";
+      return;
+    }
+    const jwt = parseJwt(token);
+    console.log("🔓 JWT payload:", JSON.stringify(jwt, null, 2));
+
+    // ── Extract user purely from login response + JWT (no extra fetch) ──
+    // Walk every possible key your backend might use
+    const src = Object.assign(
+      {},
+      jwt,                          // JWT payload (lowest priority)
+      res.data,                     // top-level response fields
+      res.data.user      || {},     // { user: {...} }
+      res.data.data      || {},     // { data: {...} }
+      res.data.userData  || {},     // { userData: {...} }
+      res.data.result    || {},     // { result: {...} }
+    );
+
+    const user = {
+      _id:   src._id   || src.id   || src.userId || src.user_id || "",
+      name:  src.name  || src.username || src.fullName || src.full_name || src.firstName || "",
+      email: src.email || email,
+      role:  src.role  || src.userRole || src.user_role || src.type || src.accountType || "",
+    };
+
+    console.log("📦 Merged source object:", JSON.stringify(src, null, 2));
+    console.log("✅ User to store:", JSON.stringify(user, null, 2));
+
+    if (!user.role) {
+      showMessage(
+        "Sign-in succeeded but your account role is missing. " +
+        "Check DevTools → Console to see what your backend returns.",
+        "error"
+      );
+      // Still save token + partial user so dashboard can try /me
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(user));
+      // Redirect anyway — dashboard will self-heal via /me
+      window.location.href = "/dashboard.html";
+      return;
+    }
+
+    localStorage.setItem("token", token);
+    localStorage.setItem("user", JSON.stringify(user));
+    window.location.href = "/dashboard.html";
+  });
+
+  function parseJwt(token) {
+    try { return JSON.parse(atob(token.split(".")[1])); }
+    catch { return {}; }
+  }
+</script>
+</body>
+</html>

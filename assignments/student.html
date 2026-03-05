@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Assignments — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="student-assignments">
+
+<!-- ── Upload Modal ─────────────────────────────────────────── -->
+<div id="uploadModal" style="display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div id="uploadBackdrop" style="position:absolute;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);"></div>
+  <div style="position:relative;z-index:1;background:#0d1426;border:1px solid #1e2e4a;border-radius:16px;padding:36px;width:100%;max-width:460px;animation:fadeUp 0.2s ease;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <h2 style="font-family:'DM Serif Display',serif;font-size:1.3rem;color:white;">Submit Assignment</h2>
+      <button id="closeUpload" style="background:none;border:none;cursor:pointer;color:#64748b;font-size:1.3rem;">✕</button>
+    </div>
+    <p id="modalAssignTitle" style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#f59e0b;margin-bottom:20px;"></p>
+    <div id="uploadMsg" class="hidden mb-4 text-sm"></div>
+    <form id="uploadForm" novalidate>
+      <div id="dropZone" style="border:2px dashed #1e2e4a;border-radius:10px;padding:36px 20px;text-align:center;cursor:pointer;transition:all 0.2s;position:relative;margin-bottom:16px;">
+        <input type="file" id="uploadFile" name="file" accept="application/pdf"
+          style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;" />
+        <div id="dropIcon" style="font-size:2.5rem;margin-bottom:8px;">📄</div>
+        <p id="dropLabel" style="font-weight:600;color:white;margin-bottom:4px;">Drop your PDF here</p>
+        <p style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#475569;">or click to browse · PDF only · max 10MB</p>
+      </div>
+      <div id="filePreview" style="display:none;padding:12px 14px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:8px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.3rem;">📎</span>
+          <div style="flex:1;min-width:0;">
+            <p id="previewName" style="font-weight:600;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.88rem;"></p>
+            <p id="previewSize" style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:#64748b;"></p>
+          </div>
+          <button type="button" id="clearFile" style="background:none;border:none;cursor:pointer;color:#64748b;font-size:1.1rem;">✕</button>
+        </div>
+      </div>
+      <button type="submit" id="uploadBtn" class="btn-primary" style="width:100%;justify-content:center;padding:13px;" disabled>
+        Submit Assignment
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ── PDF Viewer Modal ──────────────────────────────────────── -->
+<div id="pdfModal" style="display:none;position:fixed;inset:0;z-index:1000;flex-direction:column;">
+  <div style="background:#0d1426;border-bottom:1px solid #1e2e4a;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button id="closePdf" style="background:none;border:none;cursor:pointer;color:#64748b;font-size:1.3rem;" title="Close">✕</button>
+      <p id="pdfTitle" style="font-weight:600;color:white;font-size:0.95rem;"></p>
+    </div>
+    <a id="pdfDownload" href="#" download style="display:inline-flex;align-items:center;gap:6px;" class="btn-primary" style="font-size:0.83rem;padding:7px 16px;">
+      ⬇ Download PDF
+    </a>
+  </div>
+  <iframe id="pdfFrame" src="" style="flex:1;width:100%;border:none;background:#1a1a2e;"></iframe>
+</div>
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, formatDate, formatDateTime, isOverdue, showMessage } from "/js/utils.js";
+  import { apiGetStudentAssignments, apiSubmitAssignment, BASE_URL } from "/js/api.js";
+
+  if (!requireAuth(["student"])) throw new Error("unauth");
+  renderNav("student-assignments");
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+
+      <!-- Nav breadcrumb -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">
+        <a href="/dashboard.html" style="color:#64748b;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='#f59e0b'" onmouseout="this.style.color='#64748b'">← Dashboard</a>
+        <span>/</span>
+        <span style="color:#94a3b8;">My Assignments</span>
+      </div>
+
+      <div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">My Assignments</h1>
+          <p class="page-subtitle">Track and submit your work</p>
+        </div>
+        <button id="refreshBtn" class="btn-secondary">⟳ Refresh</button>
+      </div>
+
+      <!-- Stats -->
+      <div id="statsRow" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px;"></div>
+
+      <!-- Filter tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:20px;">
+        <button class="a-filter active-a-filter" data-f="all">All</button>
+        <button class="a-filter" data-f="pending">Pending</button>
+        <button class="a-filter" data-f="submitted">Submitted</button>
+      </div>
+
+      <div id="msg" class="hidden mb-4"></div>
+      <div id="assignmentList"></div>
+    </div>
+  `);
+
+  let allAssignments      = [];
+  let activeFilter        = "all";
+  let currentAssignmentId = null;
+  const container  = document.getElementById("assignmentList");
+  const statsRow   = document.getElementById("statsRow");
+
+  // ── Key fix: determine if THIS student submitted ───────────
+  // Only trust `submitted` flag from the service annotation.
+  // Do NOT use fileUrl — that may be the lecturer's attachment.
+  function isSubmitted(a) {
+    return !!(a.submitted === true || a.status === "submitted");
+  }
+
+  // ── Build full file URL safely (avoid double slashes) ──────
+  function fileLink(path) {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    // path is like "/uploads/file.pdf" — strip leading slash to avoid double
+    return `${BASE_URL}/${path.replace(/^\/+/, "")}`;
+  }
+
+  // ── Fetch ──────────────────────────────────────────────────
+  async function load() {
+    container.innerHTML = skeleton();
+    statsRow.innerHTML  = "";
+
+    const res = await apiGetStudentAssignments();
+    console.log("📚 Raw API response:", res);
+
+    if (!res.ok) { container.innerHTML = errCard(res.error); return; }
+
+    const raw = res.data;
+    allAssignments = Array.isArray(raw)   ? raw
+                   : raw.assignments      ? raw.assignments
+                   : raw.data             ? raw.data
+                   : raw.result           ? raw.result
+                   : [];
+
+    console.log("📋 Assignments:", allAssignments.map(a => ({
+      title: a.title,
+      status: a.status,
+      submitted: a.submitted,
+      submittedBy: a.submittedBy,
+      fileUrl: a.fileUrl
+    })));
+
+    renderStats();
+    render();
+  }
+
+  // ── Stats ──────────────────────────────────────────────────
+  function renderStats() {
+    const total     = allAssignments.length;
+    const submitted = allAssignments.filter(isSubmitted).length;
+    const pending   = total - submitted;
+
+    statsRow.innerHTML = `
+      ${statCard("Total",     total,     "📋")}
+      ${statCard("Pending",   pending,   "⏳", "#f59e0b")}
+      ${statCard("Submitted", submitted, "✓",  "#10b981")}`;
+  }
+
+  function statCard(label, value, icon, color = "#f59e0b") {
+    return `<div class="card" style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:1.8rem;">${icon}</span>
+      <div>
+        <p style="font-size:1.6rem;font-weight:800;color:${color};line-height:1;">${value}</p>
+        <p style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;">${label}</p>
+      </div>
+    </div>`;
+  }
+
+  // ── Render cards ───────────────────────────────────────────
+  function render() {
+    let items = allAssignments;
+
+    if (activeFilter === "pending")   items = items.filter(a => !isSubmitted(a));
+    if (activeFilter === "submitted") items = items.filter(a =>  isSubmitted(a));
+
+    if (!items.length) {
+      container.innerHTML = `<div style="text-align:center;padding:72px 0;color:#475569;font-family:'IBM Plex Mono',monospace;">
+        ${allAssignments.length === 0 ? "No assignments yet — check back soon" : `No ${activeFilter} assignments`}
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;">
+      ${items.map(a => {
+        const submitted = isSubmitted(a);
+        const overdue   = isOverdue(a.dueDate) && !submitted;
+        const subFile   = submitted ? fileLink(a.fileUrl) : null;   // student's submission
+        const attachUrl = !submitted && a.fileUrl ? fileLink(a.fileUrl) : null; // lecturer's brief (only when pending)
+
+        return `
+          <div class="card" style="border-color:${submitted ? 'rgba(16,185,129,0.15)' : overdue ? 'rgba(248,113,113,0.15)' : '#1e2e4a'};">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+
+              <div style="flex:1;min-width:200px;">
+                <!-- Title + badge -->
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+                  <h3 style="font-weight:700;color:white;font-size:1rem;">${a.title}</h3>
+                  ${submitted
+                    ? `<span class="status-badge" style="background:rgba(16,185,129,0.1);color:#6ee7b7;border-color:rgba(16,185,129,0.3);">✓ Submitted</span>`
+                    : overdue
+                      ? `<span class="status-badge" style="background:rgba(248,113,113,0.1);color:#fca5a5;border-color:rgba(248,113,113,0.3);">Overdue</span>`
+                      : `<span class="status-badge" style="background:rgba(245,158,11,0.1);color:#fcd34d;border-color:rgba(245,158,11,0.3);">Pending</span>`
+                  }
+                </div>
+
+                ${a.description ? `<p style="font-size:0.85rem;color:#64748b;margin-bottom:10px;line-height:1.5;">${a.description}</p>` : ""}
+
+                <!-- Meta row -->
+                <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#64748b;">
+                  <span>Due: <span style="color:${overdue ? '#f87171' : '#94a3b8'}">${formatDate(a.dueDate)}</span></span>
+                  ${a.submittedAt ? `<span>Submitted: <span style="color:#6ee7b7">${formatDateTime(a.submittedAt)}</span></span>` : ""}
+
+                  <!-- Lecturer brief — only show on pending assignments that have a file -->
+                  ${attachUrl ? `
+                    <button onclick="viewPdf('${attachUrl}','${(a.title||'').replace(/'/g,"\\'")} — Brief')"
+                      style="background:none;border:none;cursor:pointer;color:#60a5fa;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;padding:0;text-decoration:underline;">
+                      📎 View brief
+                    </button>` : ""}
+
+                  <!-- Student's submission file -->
+                  ${subFile ? `
+                    <button onclick="viewPdf('${subFile}','${(a.title||'').replace(/'/g,"\\'")} — My Submission')"
+                      style="background:none;border:none;cursor:pointer;color:#f59e0b;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;padding:0;text-decoration:underline;">
+                      📄 View my submission
+                    </button>` : ""}
+                </div>
+              </div>
+
+              <!-- Action button -->
+              <div style="flex-shrink:0;padding-top:2px;">
+                ${submitted
+                  ? `<span style="font-size:1.8rem;" title="Submitted">✅</span>`
+                  : `<button onclick="openUpload('${a._id}','${(a.title||'').replace(/'/g,"\\'")}',${overdue})"
+                       class="btn-primary" style="white-space:nowrap;font-size:0.85rem;">
+                       📤 Upload &amp; Submit
+                     </button>`
+                }
+              </div>
+            </div>
+          </div>`;
+      }).join("")}
+    </div>`;
+  }
+
+  // ── PDF Viewer ─────────────────────────────────────────────
+  const pdfModal    = document.getElementById("pdfModal");
+  const pdfFrame    = document.getElementById("pdfFrame");
+  const pdfDownload = document.getElementById("pdfDownload");
+
+  window.viewPdf = (url, title) => {
+    document.getElementById("pdfTitle").textContent = title;
+    pdfFrame.src       = url;
+    pdfDownload.href   = url;
+    pdfDownload.download = title + ".pdf";
+    pdfModal.style.display = "flex";
+  };
+
+  document.getElementById("closePdf").addEventListener("click", () => {
+    pdfModal.style.display = "none";
+    pdfFrame.src = ""; // stop loading
+  });
+
+  // ── Upload Modal ───────────────────────────────────────────
+  const uploadModal = document.getElementById("uploadModal");
+  const uploadFile  = document.getElementById("uploadFile");
+  const dropZone    = document.getElementById("dropZone");
+  const uploadBtn   = document.getElementById("uploadBtn");
+
+  window.openUpload = (id, title, overdue) => {
+    currentAssignmentId = id;
+    document.getElementById("modalAssignTitle").textContent = title;
+    document.getElementById("uploadMsg").classList.add("hidden");
+    document.getElementById("uploadForm").reset();
+    document.getElementById("filePreview").style.display = "none";
+    document.getElementById("dropLabel").textContent = "Drop your PDF here";
+    document.getElementById("dropIcon").textContent  = "📄";
+    dropZone.style.borderColor = "#1e2e4a";
+    dropZone.style.background  = "";
+    uploadBtn.disabled    = true;
+    uploadBtn.textContent = "Submit Assignment";
+    if (overdue) showMessage("This assignment is overdue — submission may not be accepted.", "info", "uploadMsg");
+    uploadModal.style.display = "flex";
+  };
+
+  document.getElementById("closeUpload").addEventListener("click",   () => uploadModal.style.display = "none");
+  document.getElementById("uploadBackdrop").addEventListener("click", () => uploadModal.style.display = "none");
+
+  uploadFile.addEventListener("change", e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+  dropZone.addEventListener("dragover",  e => { e.preventDefault(); dropZone.style.borderColor = "#f59e0b"; dropZone.style.background = "rgba(245,158,11,0.04)"; });
+  dropZone.addEventListener("dragleave", ()  => { dropZone.style.borderColor = "#1e2e4a"; dropZone.style.background = ""; });
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault(); dropZone.style.borderColor = "#1e2e4a"; dropZone.style.background = "";
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+
+  document.getElementById("clearFile").addEventListener("click", () => {
+    uploadFile.value = "";
+    document.getElementById("filePreview").style.display = "none";
+    document.getElementById("dropLabel").textContent = "Drop your PDF here";
+    document.getElementById("dropIcon").textContent  = "📄";
+    dropZone.style.borderColor = "#1e2e4a";
+    uploadBtn.disabled = true;
+  });
+
+  function handleFile(file) {
+    if (file.type !== "application/pdf") {
+      showMessage("Only PDF files are accepted", "error", "uploadMsg"); return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showMessage("File must be under 10MB", "error", "uploadMsg"); return;
+    }
+    document.getElementById("previewName").textContent = file.name;
+    document.getElementById("previewSize").textContent = (file.size / 1024 / 1024).toFixed(2) + " MB";
+    document.getElementById("filePreview").style.display = "block";
+    document.getElementById("dropLabel").textContent = "File selected ✓";
+    document.getElementById("dropIcon").textContent  = "✅";
+    dropZone.style.borderColor = "rgba(16,185,129,0.4)";
+    uploadBtn.disabled = false;
+  }
+
+  document.getElementById("uploadForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const file = uploadFile.files[0];
+    if (!file) { showMessage("Please select a PDF file", "error", "uploadMsg"); return; }
+
+    uploadBtn.disabled    = true;
+    uploadBtn.textContent = "Uploading…";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await apiSubmitAssignment(currentAssignmentId, formData);
+    console.log("📤 Submit response:", res);
+
+    if (res.ok) {
+      uploadModal.style.display = "none";
+      showMessage("Assignment submitted successfully! 🎉", "success");
+
+      // Flip card immediately — mark as submitted in local state
+      const a = allAssignments.find(x => x._id === currentAssignmentId);
+      if (a) {
+        a.submitted   = true;
+        a.status      = "submitted";
+        a.submittedAt = new Date().toISOString();
+        // Update fileUrl to student's submitted file
+        const returnedFileUrl = res.data?.data?.fileUrl || res.data?.fileUrl || "";
+        if (returnedFileUrl) a.fileUrl = returnedFileUrl;
+      }
+      renderStats();
+      render();
+    } else {
+      showMessage(res.error || "Submission failed. Please try again.", "error", "uploadMsg");
+      uploadBtn.disabled    = false;
+      uploadBtn.textContent = "Submit Assignment";
+    }
+  });
+
+  // ── Filter tabs ────────────────────────────────────────────
+  document.querySelectorAll(".a-filter").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".a-filter").forEach(b => b.classList.remove("active-a-filter"));
+      btn.classList.add("active-a-filter");
+      activeFilter = btn.dataset.f;
+      render();
+    });
+  });
+
+  document.getElementById("refreshBtn").addEventListener("click", load);
+
+  await load();
+
+  function skeleton() {
+    return Array(3).fill(0).map(() =>
+      `<div class="card animate-pulse mb-4" style="height:90px;"></div>`
+    ).join("");
+  }
+  function errCard(m) {
+    return `<div class="card" style="border-color:rgba(248,113,113,0.3);"><p style="color:#f87171;font-family:'IBM Plex Mono',monospace;">Error: ${m}</p></div>`;
+  }
+</script>
+
+<style>
+  .a-filter {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: 1px solid #1e2e4a;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .a-filter:hover { color: #e2e8f0; border-color: #2a3e5a; background: #152038; }
+  .active-a-filter { color: #f59e0b !important; border-color: rgba(245,158,11,0.4) !important; background: rgba(245,158,11,0.06) !important; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</body>
+</html>

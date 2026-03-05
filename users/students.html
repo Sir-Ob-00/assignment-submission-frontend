@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Students — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-page="student-list">
+
+<script type="module">
+  import { renderNav } from "/js/nav.js";
+  import { requireAuth, formatDate } from "/js/utils.js";
+  import { apiGetStudents } from "/js/api.js";
+
+  if (!requireAuth(["lecturer", "admin"])) throw new Error("unauth");
+  renderNav("student-list");
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="page-wrapper">
+      <!-- Nav breadcrumb -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#475569;">
+        <a href="/dashboard.html" style="color:#64748b;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='#f59e0b'" onmouseout="this.style.color='#64748b'">← Dashboard</a>
+        <span>/</span>
+        <span style="color:#94a3b8;">Students</span>
+      </div>
+
+      <div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">Students</h1>
+          <p class="page-subtitle">All enrolled students</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input id="search" type="text" class="form-input" placeholder="Search students…" style="max-width:220px;" />
+          <span id="count" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#475569;white-space:nowrap;"></span>
+        </div>
+      </div>
+      <div id="studentList"></div>
+    </div>
+  `);
+
+  let allStudents = [];
+  const container = document.getElementById("studentList");
+
+  async function load() {
+    container.innerHTML = skeleton();
+    const res = await apiGetStudents();
+    if (!res.ok) { container.innerHTML = errCard(res.error); return; }
+    allStudents = res.data.students || res.data || [];
+    render();
+  }
+
+  function render() {
+    const q = document.getElementById("search").value.toLowerCase();
+    const items = q ? allStudents.filter(s => s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q)) : allStudents;
+
+    document.getElementById("count").textContent = `${items.length} student${items.length!==1?'s':''}`;
+
+    if (!items.length) { container.innerHTML = empty("No students found"); return; }
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">
+        ${items.map(s => `
+          <div class="card animate-fadeUp" style="transition:border-color 0.2s;" onmouseover="this.style.borderColor='#2a3e5a'" onmouseout="this.style.borderColor='#1e2e4a'">
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+              <div style="width:44px;height:44px;border-radius:50%;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:#f59e0b;flex-shrink:0;">${s.name.charAt(0).toUpperCase()}</div>
+              <div style="min-width:0;">
+                <p style="font-weight:600;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</p>
+                <span class="status-badge" style="background:rgba(16,185,129,0.08);color:#6ee7b7;border-color:rgba(16,185,129,0.2);font-size:0.65rem;">student</span>
+              </div>
+            </div>
+            <p style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;">${s.email}</p>
+            <p style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:#475569;">Joined: ${formatDate(s.createdAt)}</p>
+          </div>
+        `).join("")}
+      </div>`;
+  }
+
+  document.getElementById("search").addEventListener("input", render);
+  await load();
+
+  function skeleton() { return Array(6).fill(0).map(()=>`<div class="card animate-pulse" style="height:100px;"></div>`).join(""); }
+  function errCard(m) { return `<div class="card" style="border-color:rgba(248,113,113,0.3);"><p style="color:#f87171;font-family:'IBM Plex Mono',monospace;">Error: ${m}</p></div>`; }
+  function empty(m)   { return `<div style="text-align:center;padding:64px 0;color:#475569;font-family:'IBM Plex Mono',monospace;">${m}</div>`; }
+</script>
+<style>
+  #studentList { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  #studentList > div { display: contents; }
+</style>
+</body>
+</html>

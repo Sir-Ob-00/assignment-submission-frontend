@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — AssignHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+
+<div class="auth-wrapper">
+  <div class="auth-card animate-fadeUp" style="max-width:460px;">
+
+    <div class="mb-7 text-center">
+      <a href="/index.html" style="font-family:'DM Serif Display',serif;font-size:1.5rem;color:#f59e0b;text-decoration:none;">AssignHub</a>
+      <p style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#64748b;margin-top:6px;letter-spacing:0.1em;">CREATE YOUR ACCOUNT</p>
+    </div>
+
+    <div id="msg" class="hidden mb-4 text-sm"></div>
+
+    <form id="registerForm" novalidate>
+      <div class="form-group">
+        <label class="form-label" for="name">Full Name</label>
+        <input id="name" type="text" class="form-input" placeholder="Dr. Jane Smith" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="email">Email Address</label>
+        <input id="email" type="email" class="form-input" placeholder="jane@university.edu" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input id="password" type="password" class="form-input" placeholder="Min 8 characters" required minlength="8" />
+      </div>
+
+      <div class="form-group" style="margin-bottom:28px;">
+        <label class="form-label" for="role">Account Role</label>
+        <select id="role" class="form-input" required style="appearance:none;cursor:pointer;">
+          <option value="" disabled selected>Select your role</option>
+          <option value="student">Student</option>
+          <option value="lecturer">Lecturer</option>
+          <option value="admin">Administrator</option>
+        </select>
+
+        <!-- Role descriptions -->
+        <div id="role-desc" style="margin-top:10px;padding:10px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.15);border-radius:6px;display:none;">
+          <p id="role-desc-text" style="font-size:0.78rem;color:#94a3b8;font-family:'IBM Plex Mono',monospace;line-height:1.5;"></p>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary" style="width:100%;justify-content:center;padding:13px;">
+        Create Account
+      </button>
+    </form>
+
+    <hr class="divider" />
+    <p style="text-align:center;font-size:0.85rem;color:#64748b;">
+      Already have an account?
+      <a href="/index.html" style="color:#f59e0b;font-weight:600;text-decoration:none;margin-left:4px;">Sign in →</a>
+    </p>
+  </div>
+</div>
+
+<script type="module">
+  import { apiRegister } from "/js/api.js";
+  import { showMessage } from "/js/utils.js";
+
+  const roleDescriptions = {
+    student:  "Can view assigned work, submit PDFs, and track submission status.",
+    lecturer: "Can create assignments, view all submissions, and manage student lists.",
+    admin:    "Full access: manage users, view all assignments, and configure system settings.",
+  };
+
+  document.getElementById("role").addEventListener("change", (e) => {
+    const desc   = document.getElementById("role-desc");
+    const text   = document.getElementById("role-desc-text");
+    const val    = e.target.value;
+    if (roleDescriptions[val]) {
+      text.textContent = roleDescriptions[val];
+      desc.style.display = "block";
+    } else {
+      desc.style.display = "none";
+    }
+  });
+
+  document.getElementById("registerForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button[type=submit]");
+
+    const name     = document.getElementById("name").value.trim();
+    const email    = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const role     = document.getElementById("role").value;
+
+    if (!name || !email || !password || !role) {
+      showMessage("Please fill in all fields", "error"); return;
+    }
+    if (password.length < 8) {
+      showMessage("Password must be at least 8 characters", "error"); return;
+    }
+
+    btn.disabled = true; btn.textContent = "Creating account…";
+
+    const res = await apiRegister({ name, email, password, role });
+    if (res.ok) {
+      showMessage("Account created! Redirecting to login…", "success");
+      setTimeout(() => window.location.href = "/index.html", 1800);
+    } else {
+      showMessage(res.error || "Registration failed", "error");
+      btn.disabled = false; btn.textContent = "Create Account";
+    }
+  });
+</script>
+</body>
+</html>
