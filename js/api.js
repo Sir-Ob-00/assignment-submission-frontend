@@ -3,7 +3,7 @@
 //  Change BASE_URL to match your backend
 // ============================================================
 
-const BASE_URL = "http://localhost:5000";   // ← update this
+const BASE_URL = "https://assignment-submission-9idl.onrender.com";   // ← update this
 
 // ── Helpers ─────────────────────────────────────────────────
 
