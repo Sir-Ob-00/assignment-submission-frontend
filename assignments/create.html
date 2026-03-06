@@ -12,7 +12,7 @@
 <script type="module">
   import { renderNav } from "/js/nav.js";
   import { requireAuth, showMessage } from "/js/utils.js";
-  import { BASE_URL } from "/js/api.js";
+  import { apiCreateAssignment } from "/js/api.js";
 
   if (!requireAuth(["lecturer", "admin"])) throw new Error("unauth");
   renderNav("create");
@@ -179,37 +179,31 @@
       showMessage("Title, description and due date are required", "error"); return;
     }
 
-    btn.disabled = true; btn.textContent = "Creating…";
-
-    // Use FormData so Multer can receive the file
-    const formData = new FormData();
-    formData.append("title",       title);
-    formData.append("description", desc);
-    formData.append("dueDate",     due);
+    btn.disabled = true; btn.textContent = "Creating...";
 
     const attachFile = document.getElementById("attachFile").files[0];
-    if (attachFile) formData.append("attachment", attachFile);
 
     try {
-      const token = localStorage.getItem("token");
-      const res   = await fetch(`${BASE_URL}/api/assignments`, {
-        method:  "POST",
-        headers: { Authorization: `Bearer ${token}` }, // NO Content-Type — browser sets it with boundary
-        body:    formData,
+      const res = await apiCreateAssignment({
+        title,
+        description: desc,
+        dueDate: due,
+        attachment: attachFile || null,
       });
-      const data = await res.json();
 
-      if (res.ok && data.success) {
-        showMessage("Assignment created successfully! 🎉", "success");
+      if (res.ok) {
+        showMessage("Assignment created successfully!", "success");
         document.getElementById("createForm").reset();
         document.getElementById("attachPreview").style.display = "none";
         document.getElementById("attachLabel").textContent = "Attach a PDF (optional)";
-        document.getElementById("attachIcon").textContent  = "📎";
+        document.getElementById("attachIcon").textContent  = "PDF";
         dropZone.style.borderColor = "#1e2e4a";
       } else {
-        showMessage(data.message || "Failed to create assignment", "error");
+        console.error("[CREATE PAGE] Assignment create failed:", res);
+        showMessage(res.error || "Failed to create assignment", "error");
       }
     } catch (err) {
+      console.error("[CREATE PAGE] Unexpected error:", err);
       showMessage("Network error: " + err.message, "error");
     }
 
@@ -222,3 +216,4 @@
 </style>
 </body>
 </html>
+

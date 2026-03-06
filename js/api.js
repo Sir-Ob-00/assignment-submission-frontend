@@ -124,11 +124,86 @@ export async function apiGetStudents() {
 // ── Assignments ───────────────────────────────────────────────
 
 export async function apiCreateAssignment(payload) {
-  return request("/api/assignments", {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(payload),
-  });
+  try {
+    const token = getToken();
+    if (!token) return { ok: false, error: "Missing auth token." };
+
+    const hasAttachment = payload?.attachment instanceof File;
+    const parsedDate = new Date(payload?.dueDate);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return { ok: false, error: "Invalid due date." };
+    }
+    const dueDate = parsedDate.toISOString();
+
+    let res;
+    if (hasAttachment) {
+      const formData = new FormData();
+      formData.append("title", payload.title || "");
+      formData.append("description", payload.description || "");
+      formData.append("dueDate", dueDate);
+      formData.append("attachment", payload.attachment);
+
+      console.log("[ASSIGNMENTS][CREATE] Sending multipart payload", {
+        title: payload.title,
+        dueDate,
+        hasAttachment: true,
+      });
+
+      res = await fetch(`${BASE_URL}/api/assignments`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+    } else {
+      const body = {
+        title: payload?.title || "",
+        description: payload?.description || "",
+        dueDate,
+      };
+
+      console.log("[ASSIGNMENTS][CREATE] Sending JSON payload", body);
+
+      res = await fetch(`${BASE_URL}/api/assignments`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    const rawText = await res.text();
+    let data = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = { message: rawText };
+    }
+
+    console.log("[ASSIGNMENTS][CREATE] API response", {
+      status: res.status,
+      ok: res.ok,
+      data,
+    });
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data?.message || data?.error || `Failed with status ${res.status}`,
+        data,
+        status: res.status,
+      };
+    }
+
+    return { ok: true, data, status: res.status };
+  } catch (err) {
+    console.error("[ASSIGNMENTS][CREATE] Network/CORS error:", err);
+    return {
+      ok: false,
+      error: "Network or CORS error. Verify backend URL and CORS settings.",
+    };
+  }
 }
 
 export async function apiGetAllAssignments() {
