@@ -28,14 +28,68 @@ async function request(path, options = {}) {
   }
 }
 
+function decodeJwtPayload(token) {
+  try {
+    if (!token || typeof token !== "string") return null;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(b64));
+  } catch {
+    return null;
+  }
+}
+
+function isTokenValid(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  if (!payload.exp) return true;
+  return payload.exp * 1000 > Date.now();
+}
+
+function extractToken(data) {
+  return data?.token
+    || data?.accessToken
+    || data?.access_token
+    || data?.jwt
+    || data?.data?.token
+    || data?.data?.accessToken
+    || data?.result?.token
+    || null;
+}
+
 // ── Auth ─────────────────────────────────────────────────────
 
 export async function apiLogin(email, password) {
-  return request("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    console.log("[LOGIN] API response:", { status: res.status, data });
+
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Invalid email or password" };
+    }
+
+    const token = extractToken(data);
+    if (!isTokenValid(token)) {
+      console.error("[LOGIN] Missing or invalid JWT:", token);
+      return { ok: false, error: "Login succeeded but JWT token is missing or invalid." };
+    }
+
+    localStorage.setItem("token", token);
+    console.log("[LOGIN] Token saved:", Boolean(localStorage.getItem("token")));
+    return { ok: true, data, token };
+  } catch (err) {
+    console.error("[LOGIN] Network/CORS error:", err);
+    return {
+      ok: false,
+      error: "Network or CORS error. Verify backend URL and CORS settings.",
+    };
+  }
 }
 
 export async function apiRegister(payload) {

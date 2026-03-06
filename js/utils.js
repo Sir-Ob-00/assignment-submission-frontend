@@ -36,15 +36,67 @@ export function formatDateTime(dateStr) {
   });
 }
 
-export function requireAuth(allowedRoles = []) {
-  const token = localStorage.getItem("token");
-  const user  = getUser();
-  if (!token || !user) {
-    window.location.href = "/index.html";
+export function decodeJwtPayload(token) {
+  try {
+    if (!token || typeof token !== "string") return null;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(b64));
+  } catch {
+    return null;
+  }
+}
+
+export function isTokenValid(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  if (!payload.exp) return true;
+  return payload.exp * 1000 > Date.now();
+}
+
+export function runPublicAuthCheck() {
+  const isLocalDevHost =
+    window.location.hostname === "localhost"
+    || window.location.hostname === "127.0.0.1";
+  if (isLocalDevHost) {
+    console.log("[AUTH CHECK][PUBLIC] Local dev host detected, skipping auto-redirect.");
     return false;
   }
-  if (allowedRoles.length && !allowedRoles.includes(user.role)) {
-    window.location.href = "/dashboard.html";
+
+  const token = localStorage.getItem("token");
+  const valid = isTokenValid(token);
+  console.log("[AUTH CHECK][PUBLIC]", {
+    path: window.location.pathname,
+    hasToken: Boolean(token),
+    validToken: valid,
+  });
+  if (valid) {
+    window.location.replace("/dashboard.html");
+    return true;
+  }
+  return false;
+}
+
+export function requireAuth(allowedRoles = []) {
+  const token = localStorage.getItem("token");
+  const valid = isTokenValid(token);
+  console.log("[AUTH CHECK][PROTECTED]", {
+    path: window.location.pathname,
+    hasToken: Boolean(token),
+    validToken: valid,
+  });
+
+  if (!valid) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.replace("/index.html");
+    return false;
+  }
+
+  const user  = getUser();
+  if (allowedRoles.length && (!user || !allowedRoles.includes(user.role))) {
+    window.location.replace("/dashboard.html");
     return false;
   }
   return true;

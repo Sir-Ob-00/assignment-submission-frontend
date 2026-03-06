@@ -53,13 +53,9 @@
 
 <script type="module">
   import { apiLogin } from "/js/api.js";
-  import { showMessage } from "/js/utils.js";
+  import { showMessage, runPublicAuthCheck, decodeJwtPayload } from "/js/utils.js";
 
-  // Only auto-redirect if stored user has a valid role
-  const cachedUser = JSON.parse(localStorage.getItem("user") || "null");
-  if (localStorage.getItem("token") && cachedUser?.role) {
-    window.location.href = "/dashboard.html";
-  }
+  runPublicAuthCheck();
 
   document.getElementById("togglePwd").addEventListener("click", () => {
     const input = document.getElementById("password");
@@ -68,91 +64,62 @@
 
   document.getElementById("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const btn      = e.target.querySelector("button[type=submit]");
-    btn.disabled   = true;
-    btn.textContent = "Signing in…";
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    btn.textContent = "Signing in...";
 
-    const email    = document.getElementById("email").value.trim();
+    const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
 
     if (!email || !password) {
       showMessage("Please fill in all fields", "error");
-      btn.disabled = false; btn.textContent = "Sign In"; return;
+      btn.disabled = false;
+      btn.textContent = "Sign In";
+      return;
     }
 
     const res = await apiLogin(email, password);
+    console.log("[LOGIN PAGE] apiLogin result:", res);
     if (!res.ok) {
       showMessage(res.error || "Invalid email or password", "error");
-      btn.disabled = false; btn.textContent = "Sign In";
+      btn.disabled = false;
+      btn.textContent = "Sign In";
       return;
     }
 
-    // ── Log FIRST so we always see the response shape ──
-    console.log("🔑 Full login response:", JSON.stringify(res.data, null, 2));
-
-    // Token may be nested under different keys depending on the backend
-    const token = res.data.token
-      || res.data.accessToken
-      || res.data.access_token
-      || res.data.jwt
-      || res.data.data?.token
-      || res.data.data?.accessToken
-      || res.data.result?.token;
-
+    const token = res.token || localStorage.getItem("token");
     if (!token) {
-      showMessage("No token returned from server. Check your backend.", "error");
-      console.error("❌ Could not find token in response. Full response above ↑");
-      btn.disabled = false; btn.textContent = "Sign In";
+      showMessage("No valid token returned from server.", "error");
+      console.error("[LOGIN PAGE] Missing token after successful login.");
+      btn.disabled = false;
+      btn.textContent = "Sign In";
       return;
     }
-    const jwt = parseJwt(token);
-    console.log("🔓 JWT payload:", JSON.stringify(jwt, null, 2));
 
-    // ── Extract user purely from login response + JWT (no extra fetch) ──
-    // Walk every possible key your backend might use
+    const jwt = decodeJwtPayload(token) || {};
     const src = Object.assign(
       {},
-      jwt,                          // JWT payload (lowest priority)
-      res.data,                     // top-level response fields
-      res.data.user      || {},     // { user: {...} }
-      res.data.data      || {},     // { data: {...} }
-      res.data.userData  || {},     // { userData: {...} }
-      res.data.result    || {},     // { result: {...} }
+      jwt,
+      res.data || {},
+      res.data?.user || {},
+      res.data?.data || {},
+      res.data?.userData || {},
+      res.data?.result || {}
     );
 
     const user = {
-      _id:   src._id   || src.id   || src.userId || src.user_id || "",
-      name:  src.name  || src.username || src.fullName || src.full_name || src.firstName || "",
+      _id: src._id || src.id || src.userId || src.user_id || "",
+      name: src.name || src.username || src.fullName || src.full_name || src.firstName || "",
       email: src.email || email,
-      role:  src.role  || src.userRole || src.user_role || src.type || src.accountType || "",
+      role: src.role || src.userRole || src.user_role || src.type || src.accountType || ""
     };
 
-    console.log("📦 Merged source object:", JSON.stringify(src, null, 2));
-    console.log("✅ User to store:", JSON.stringify(user, null, 2));
-
-    if (!user.role) {
-      showMessage(
-        "Sign-in succeeded but your account role is missing. " +
-        "Check DevTools → Console to see what your backend returns.",
-        "error"
-      );
-      // Still save token + partial user so dashboard can try /me
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
-      // Redirect anyway — dashboard will self-heal via /me
-      window.location.href = "/dashboard.html";
-      return;
-    }
-
-    localStorage.setItem("token", token);
+    console.log("[LOGIN PAGE] User to store:", user);
     localStorage.setItem("user", JSON.stringify(user));
-    window.location.href = "/dashboard.html";
+    console.log("[LOGIN PAGE] Redirecting to dashboard.");
+    window.location.replace("/dashboard.html");
   });
-
-  function parseJwt(token) {
-    try { return JSON.parse(atob(token.split(".")[1])); }
-    catch { return {}; }
-  }
 </script>
 </body>
 </html>
+
